@@ -16,6 +16,13 @@ limitations under the License.
 
 # Muse Gadgets
 
+> [!NOTE]
+> **中文用户看这里**：本仓库是 [facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk) 的社区移植版，新增 **Waveshare ESP32-S3-Touch-LCD-1.85B**（1.85" 360×360 圆形 LCD + CST816S 触摸）板卡支持。
+>
+> - 刷机与使用指导（中文）：[docs/WAVESHARE-1.85B-GUIDE.zh-CN.md](docs/WAVESHARE-1.85B-GUIDE.zh-CN.md)
+> - 板卡支持清单：[esp32/devices/README.md](esp32/devices/README.md)
+> - 构建（需 ESP-IDF **v6.0.1**）：`cd esp32 && tools/muse/board.sh build 185b`
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/images/muse-gadgets-dark.png">
