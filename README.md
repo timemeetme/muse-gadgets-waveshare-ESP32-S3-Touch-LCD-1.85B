@@ -1,5 +1,7 @@
 # Waveshare ESP32-S3-Touch-LCD-1.85B 固件刷机与使用指南（中文）
 
+**简体中文** | [English](README.en-US.md)
+
 本仓库基于 Meta 开源的 [Muse Gadgets](https://gadgets.muse.ai/) ESP32 Device SDK
 （[facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk)），
 为 **微雪 Waveshare ESP32-S3-Touch-LCD-1.85B** 圆屏开发板增加了官方板级支持。
