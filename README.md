@@ -1,298 +1,355 @@
-<!--
-Copyright (c) Meta Platforms, Inc. and affiliates.
+# Waveshare ESP32-S3-Touch-LCD-1.85B 固件刷机与使用指南（中文）
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+本仓库基于 Meta 开源的 [Muse Gadgets](https://gadgets.muse.ai/) ESP32 Device SDK
+（[facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk)），
+为 **微雪 Waveshare ESP32-S3-Touch-LCD-1.85B** 圆屏开发板增加了官方板级支持。
+刷入本固件后，这块 1.85 英寸圆形触控手表板就变成一个 Muse 智能小硬件（gadget）：
+完整的屏幕头像 UI、按住说话的语音对话、触屏设置、图片显示、电池电量上报和 OTA 升级。
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
--->
-
-# 从 Meta Muse Gadgets 到 Waveshare 1.85B：竞品分析与固件移植报告
-
-> 本仓库是 [facebookincubator/muse-gadget-sdk](https://github.com/facebookincubator/muse-gadget-sdk) 的社区移植版（基线 `8e613f7`），新增 **Waveshare ESP32-S3-Touch-LCD-1.85B**（1.85" 360×360 圆形 LCD + CST816S 触摸）板卡支持。本 README 以产品视角完整复盘移植过程：平台竞品格局、硬件选型逻辑、移植技术原理、执行与验证数据。
-
-> [!NOTE]
-> **快速开始（需 ESP-IDF v6.0.1）**
->
-> - 构建：`cd esp32 && tools/muse/board.sh build 185b`
-> - 刷机与使用指导（中文）：[docs/WAVESHARE-1.85B-GUIDE.zh-CN.md](docs/WAVESHARE-1.85B-GUIDE.zh-CN.md)
-> - 板卡支持清单：[esp32/devices/README.md](esp32/devices/README.md)
-> - 配对前需在 [gadgets.muse.ai](https://gadgets.muse.ai/settings/sdk-tokens) 获取 SDK token（勿提交入库）
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/images/muse-gadgets-dark.png">
-    <img src=".github/images/muse-gadgets-light.png" width="900" alt="Muse gadgets: a Waveshare round AMOLED, an M5Stack StickS3, Muse Home Link, a Raspberry Pi and a Seeed reTerminal e-ink display">
-  </picture>
-</p>
-
-Muse gadgets are open source devices you build yourself: program an
-off-the-shelf ESP32 board or a Linux box with the device SDKs, and your Muse
-agent gets a face, a voice and eyes. Built by hackers, for hackers, just for
-fun — tinkering may include bricked boards and voided warranties. Proceed at
-your own risk.
+- 硬件：[Waveshare 产品页](https://www.waveshare.com/esp32-s3-touch-lcd-1-85b.htm) ·
+  [Waveshare Wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85B)（逐步完善中）
+- 上游协议与功能文档：[esp32/README.md](esp32/README.md)、[esp32/AGENTS.md](esp32/AGENTS.md)
+- 板卡条目（英文）：[esp32/devices/README.md](esp32/devices/README.md)
 
 ---
 
 ## 目录
 
-1. [执行摘要](#1-执行摘要)
-2. [市场与竞品格局分析](#2-市场与竞品格局分析)
-3. [硬件选型与板卡竞品分析](#3-硬件选型与板卡竞品分析)
-4. [移植方案与技术原理](#4-移植方案与技术原理)
-5. [执行过程与问题管理](#5-执行过程与问题管理)
-6. [验证结果](#6-验证结果)
-7. [风险与局限](#7-风险与局限)
-8. [建议与路线图](#8-建议与路线图)
-9. [结论](#9-结论)
+1. [这是什么 / 与 1.85C 的区别](#1-这是什么--与-185c-的区别)
+2. [准备工作](#2-准备工作)
+3. [安装 ESP-IDF v6.0.1（仅支持此版本）](#3-安装-esp-idf-v601仅支持此版本)
+4. [获取源码并配置 SDK Token](#4-获取源码并配置-sdk-token)
+5. [编译固件](#5-编译固件)
+6. [备份原厂固件（强烈建议）](#6-备份原厂固件强烈建议)
+7. [刷机](#7-刷机)
+8. [查看运行日志（串口监视）](#8-查看运行日志串口监视)
+9. [首次开机与配对](#9-首次开机与配对)
+10. [日常使用](#10-日常使用)
+11. [恢复原厂固件 / 恢复出厂设置](#11-恢复原厂固件--恢复出厂设置)
+12. [常见问题](#12-常见问题)
 
 ---
 
-## 1 执行摘要
+## 1. 这是什么 / 与 1.85C 的区别
 
-2026 年 10 月，Meta 将旗下 AI 智能体硬件平台 **Muse Gadgets** 开源，允许开发者把 Muse 云端智能体"装进"各类 ESP32 设备。本项目完成了将上游 SDK 移植到国产开发板 **Waveshare ESP32-S3-Touch-LCD-1.85B**（1.85 英寸圆形触屏）的全过程，产出可编译、可刷机、可运行的固件与完整中文文档，并开源至 GitHub。
+1.85B 与已获上游支持的 [1.85C](https://www.waveshare.com/esp32-s3-touch-lcd-1-85c.htm)
+是同系列圆屏手表板，屏幕、触摸、音频部分完全相同；区别集中在 IO 扩展与电池检测：
 
-从产品经理视角，本报告回答三个问题：**这个平台值不值得投入（竞品分析）**、**为什么选这块板子（选型分析）**、**移植是怎么做成的（原理与执行）**。
-
-| 指标 | 数值 | 说明 |
+| 部件 | 1.85C | 1.85B |
 |---|---|---|
-| 文件 | 13 个 | 新增/修改代码与文档文件 |
-| 代码 | +1170 行 | 净增量（commit `f1f8883`） |
-| 构建 | 2196 目标 | ESP-IDF v6.0.1 全量编译通过 |
-| 固件 | 2.02 MiB | 4 MiB OTA 分区余量约 48% |
-| 板级差异 | 16 改动点 | 185C → 185B 收敛后的全部改动 |
-| 刷机 | 4 分区 | 实机校验通过并进入配对广播态 |
+| 圆屏 360×360 ST77916（QSPI） | 相同 | 相同 |
+| 触摸 CST816S | 相同 | 相同 |
+| 音频 ES8311（扬声器）+ ES7210（双麦克风） | 相同 | 相同 |
+| 屏幕复位 | TCA9554 扩展芯片 EXIO2 | **直连 GPIO3** |
+| 触摸复位 | TCA9554 EXIO1 | **直连 GPIO1** |
+| 功放使能 | GPIO15 | **GPIO9** |
+| 电池检测 | GPIO8 ADC 电阻分压 | **BQ27220 电量计（I2C，地址 0x55）** |
+| TCA9554 IO 扩展芯片 | 有 | **无** |
+| Flash / PSRAM | 16 MB / 8 MB 八线 | 相同 |
+| USB | 芯片原生 USB Serial/JTAG（`303a:1001`） | 相同 |
 
-> **核心结论**：上游 SDK 的板级抽象设计成熟，是本次移植能够低成本收敛的根本原因。新板卡与参考板 185C 的差异被隔离在单板级文件、单配置叠加层与三个工具脚本内，全部改动仅 16 个改动点、约 470 行板级代码，未触碰任何应用层逻辑。固件实机运行验证通过，设备进入 BLE 配对广播状态。
->
-> **平台层面最大的产品风险不是技术，而是可用性**：Muse 服务当前仅对美国和加拿大开放，国内用户注册与使用需要美国出口 IP，且账号条款存在不确定性。相比之下，竞品"小智 AI"以 130 万台接入设备的生态规模和完全自主可控的部署方式占据国内市场。两者的差异决定了完全不同的目标用户与投入策略，详见第 2 章。
+本移植的固件改动全部在：
 
-## 2 市场与竞品格局分析
+- 板级驱动：[`esp32/components/muse/boards/board_waveshare_s3_185b.c`](esp32/components/muse/boards/board_waveshare_s3_185b.c)
+- 屏幕厂商初始化序列：[`esp32/components/muse/boards/waveshare_s3_185b/st77916_init_185b.h`](esp32/components/muse/boards/waveshare_s3_185b/st77916_init_185b.h)
+- 编译配置覆盖层：[`esp32/devices/sdkconfig.muse-waveshare-s3-185b`](esp32/devices/sdkconfig.muse-waveshare-s3-185b)
+- 接线（Kconfig / CMake / 组件规则 / `board.sh` / `ports.py` / `avatar.py`）与文档表格。
 
-### 2.1 赛道背景：AI 智能体从"App"走向"实体"
+电池读数来自 BQ27220 的标准命令：电压 `0x08`、瞬时电流 `0x0C`（正=充电）、
+相对电量 `0x2C`。电量计由电池供电，**未装电池时读数返回 `-1`**，属正常降级，不影响其他功能。
 
-2026 年，AI 陪伴与智能体硬件形成了两条清晰的产品路线：**云端智能体 + 廉价终端**（厂商把算力放在云端虚拟机，硬件只负责拾音、显示与联网）和**端侧对话 + 开源生态**（开发者自选大模型、自建或使用厂商对话服务）。前者以 Meta Muse 为代表，后者以国产开源项目"小智 AI（xiaozhi-esp32）"为代表。两者都把 ESP32 这类几十元成本的微控制器作为终端载体，说明**"低成本硬件 + 云端智能"已成为行业共识**。
+## 2. 准备工作
 
-### 2.2 竞品对比：Muse Gadgets vs 小智 AI
+**硬件**
 
-| 维度 | Muse Gadgets（Meta） | 小智 AI（十方融海） |
-|---|---|---|
-| 定位 | 个人 AI 智能体的"硬件化身"：设备接入 Muse 云端 VM，智能体获得一张脸、一副嗓音和一双眼睛 | 开源 AI 语音聊天机器人框架：MCP 协议接大模型（Qwen、DeepSeek 等），语音对话与设备控制 |
-| 开源协议 | Apache 2.0（SDK 与文档） | MIT |
-| 智能体能力 | 云端常驻 VM、多模态、主动任务；与 Muse 账号体系（日程、消息）深度联动 | 依赖所接大模型；能力上限取决于模型与自建服务 |
-| 生态规模 | 2026-10 开源，官方账号约 8.2 万关注，起步期 | GitHub 约 3 万星、7.1k fork；接入设备超 130 万台、开发者超 10 万 |
-| 自主可控 | 强绑定 Meta 云端与账号，不支持私有部署 | 支持自建对话服务器，全链路可自主 |
-| 区域可用性 | 仅美国、加拿大（18 岁以上），其他地区提示不可用；国内直连注册不通过 | 国内可正常注册使用 |
-| 硬件支持 | 官方支持约 10 款板卡（ESP32-S3-Box-3、M5Stack 系列、Waveshare 185C 等），板级抽象规范 | 社区维护数十款开发板配置，覆盖面广但规范性参差 |
-| 构建门槛 | 锁定 ESP-IDF v6.0.1 单一版本，配对需 SDK token，流程偏"产品化管控" | 提供 ESP-IDF 6 开发路径与多种烧录方式，社区文档丰富 |
+- Waveshare ESP32-S3-Touch-LCD-1.85B 一块
+- 一根 **USB 数据线**（很多 USB 线只能充电，不能传数据；刷机必须走数据线）
+- 电脑（Windows 10/11 为主，macOS / Linux 命令见各节附注）
 
-**六维定性评分（1–5 分）**：
+**账号与 App**
 
-| 维度 | Muse Gadgets | 小智 AI |
-|---|:---:|:---:|
-| 生态规模 | 2 | 5 |
-| 智能体能力深度 | 5 | 3 |
-| 自主可控 | 1 | 5 |
-| 区域可用性 | 1 | 5 |
-| 商业与资源背书 | 5 | 3 |
-| 硬件抽象成熟度 | 4 | 4 |
+1. 在 [gadgets.muse.ai](https://gadgets.muse.ai/) 注册/登录 Muse 账号，
+   进入 **Account → SDK tokens**（<https://gadgets.muse.ai/settings/sdk-tokens>），
+   创建一个 token，形如 `mgst_...`。**每个 gadget 配对都需要 token。**
+   并阅读 [Gadget SDK Terms](https://gadgets.muse.ai/sdk-terms)。
+2. 手机安装 **Muse App**（iOS / Android），在 **Settings（设置）→ Devices（设备）**
+   里先打开 **Developer mode（开发者模式）**，之后才能看到社区设备。
 
-评分依据：竞品公开信息与本项目实测（区域可用性、自主可控两维为实测结论；其余为公开资料定性判断）。
+**电脑软件**
 
-### 2.3 竞争格局对产品决策的含义
+- Python 3.9+（命令行能运行 `python`）
+- Git
+- ESP-IDF **v6.0.1**（下一节安装，其他版本不受支持）
 
-两个平台并非零和竞争，而是**服务两类完全不同的用户**：Muse Gadgets 适合面向海外市场、追求"开箱即用的智能体体验"的产品团队——Meta 承担了最难的智能体与云基础设施；小智适合国内市场与强调数据自主的场景。本项目选择移植 Muse Gadgets 的价值在于**提前卡位海外生态的硬件适配层**：上游刚开源、板卡支持窗口期短，早期完成适配的社区仓库更容易获得关注与回流。
+## 3. 安装 ESP-IDF v6.0.1（仅支持此版本）
 
-## 3 硬件选型与板卡竞品分析
+本固件只在 ESP-IDF **v6.0.1** 下编译。若提示找不到 `gcm.h`、`gpio_ll.h` 等头文件，
+几乎都是 IDF 版本不对。
 
-### 3.1 候选板卡与关键规格
+### Windows
 
-上游 SDK 官方支持的板卡中，与本项目目标形态（小圆形触屏桌面设备）最接近的是 Waveshare 1.85C。选型阶段对比了三块候选板卡：
+方式一（命令行，推荐）：
 
-| 规格项 | Waveshare 1.85B（目标板） | Waveshare 1.85C（参考基线） | ESP32-S3-Box-3 |
-|---|---|---|---|
-| SoC / Flash / PSRAM | ESP32-S3 / 16 MB / 8 MB 八线 | ESP32-S3 / 16 MB / 8 MB 八线 | ESP32-S3 / 16 MB / 16 MB |
-| 屏幕 | 1.85" 圆形 360×360 ST77916 | 1.85" 圆形 360×360 ST77916 | 2.4" 方形 320×240 ILI9341 |
-| 触摸 | CST816S，RST **直连 GPIO1** | CST816S，RST 经 **TCA9554** 扩展 | 电阻触摸 |
-| 复位控制 | LCD RST **直连 GPIO3**，无 IO 扩展芯片 | LCD RST 经 TCA9554 I2C IO 扩展 | 直连 |
-| 音频 | ES8311 功放（PA 使能 **GPIO9**）+ ES7210 麦克风 | ES8311 + ES7210，PA 控制 TCA9554 | ES8311 + ES7210 |
-| 电池管理 | **BQ27220** 电量计（I2C @0x55） | 无独立电量计 | 无 |
-| USB | Type-C，USB-Serial/JTAG 直刷 | Type-C，USB-Serial/JTAG | Type-C ×2 |
-| 与目标差异面 | —（目标） | 复位架构 + 功放控制 + 电量计三处差异 | 屏幕形态、驱动、尺寸全面不同 |
+```powershell
+# 1) 克隆 IDF（浅克隆 + 子模块，需要一些时间）
+git clone --depth 1 --recursive -b v6.0.1 https://github.com/espressif/esp-idf.git D:\esp\esp-idf-v6.0.1
 
-### 3.2 选型逻辑：为什么以 185C 为参考基线
-
-选型本质是**找"差异面最小"的官方支持板**。185C 与 185B 同厂、同屏、同 SoC、同音频链路，差异收敛在复位架构、功放控制与电量计三处，全部落在板级抽象层内；而 S3-Box-3 虽是官方旗舰参考板，但屏幕形态与驱动体系完全不同，移植工作量数倍于前者。实测也验证了这一点——最终板级差异仅 16 个改动点：
-
-| 改动类别 | 数量 |
-|---|:---:|
-| 外设增删（删 TCA9554 / 增 BQ27220） | 2 |
-| 复位引脚直连（LCD GPIO3 / 触摸 GPIO1） | 2 |
-| 音频功放使能（GPIO9） | 1 |
-| 构建系统（Kconfig / CMake / 组件规则 / 配置叠加） | 4 |
-| 工具链（board.sh / ports.py / avatar.py） | 3 |
-| 文档（设备清单 / 中文刷机指南 / README） | 4 |
-| **合计** | **16** |
-
-数据来源：commit `f1f8883` 的 13 个文件逐项归类统计。板级实现为核心工作量（约 470 行）。
-
-## 4 移植方案与技术原理
-
-### 4.1 上游架构：为什么"换一块板"可以很便宜
-
-上游 SDK 用两套机制把"应用逻辑"与"板卡差异"彻底解耦。其一是**板级契约**：每块板用一个 C 文件实现统一的 `muse_board_t` 接口（屏幕点亮、背光、复位、音频、电量读取等），应用层只面向契约编程，不感知具体引脚。其二是**三层配置叠加**：通用默认值 → 平台公共配置 → 单板配置，逐层覆盖，新板只需提供最末一层：
-
-```mermaid
-flowchart TB
-  A["应用层 main/app.c — UI、语音、配对、OTA"] --> B["组件层 components/muse — 设备服务、账号客户端"]
-  B --> C{"板级契约 muse_board_t"}
-  C --> D["185B 板级实现 — 本次新增，约 470 行"]
-  C --> E["185C 板级实现 — 参考基线"]
-  C --> F["其他官方板卡实现"]
-  G["sdkconfig.defaults 通用默认"] --> H["+ devices/sdkconfig.muse 平台公共"]
-  H --> I["+ devices/sdkconfig.muse-waveshare-s3-185b 单板覆盖"]
-  I --> J["最终构建配置 sdkconfig"]
-  J -. "约束编译与外设参数" .-> D
+# 2) 安装 xtensa-esp32s3 工具链（只需一次；会下载编译器、cmake、ninja 等）
+cd D:\esp\esp-idf-v6.0.1
+install.bat esp32s3
 ```
 
-左：调用链自上而下经板级契约分发；右：三层 sdkconfig 叠加生成最终配置。改动被限制在虚线框定的板级实现与最上层配置。
+方式二：使用 [ESP-IDF Windows 安装器](https://dl.espressif.com/dl/esp-idf/)，
+在版本列表里选 **v6.0.1** 安装。
 
-### 4.2 板级差异映射：185C 的三处差异如何转换
+之后**每个新开的终端**在编译/刷机前先激活环境：
 
-移植的技术核心，是把硬件差异翻译成契约内的等价实现。逐项原理如下：
-
-| 差异项 | 185C 实现（基线） | 185B 实现原理（本次） |
-|---|---|---|
-| IO 扩展芯片 | TCA9554 I2C IO 扩展，复位脚挂在扩展芯片上 | 185B 无此芯片。**删除 TCA9554 驱动依赖**，LCD 复位改 **GPIO3 直控**、触摸复位改 **GPIO1 直控**——把"I2C 写扩展寄存器"翻译为"拉高拉低 GPIO"，时序更简单可靠 |
-| 功放使能 | PA 使能经 TCA9554 | 改 **GPIO9 直控**；开机默认关断功放，避免上电爆音，音频会话开启时拉高 |
-| 电池电量 | 无独立电量计，电量回退为电压估算或不支持 | 新增 **BQ27220 电量计驱动接入**（I2C 地址 0x55），直接读取精确电量百分比，契约接口无需改动 |
-| 屏幕 / 触摸驱动 | ST77916 + CST816S，初始化序列内嵌在 185C 板级文件中 | 驱动**同源复用**，仅面板初始化序列随 185B 出厂校准微调，并**独立为 `st77916_init_185b.h` 头文件**，避免污染基线实现 |
-
-屏幕（ST77916）与触摸（CST816S）、音频编解码（ES8311 + ES7210）两板同源，驱动完全复用；仅面板初始化序列参数随 185B 出厂校准微调，独立为头文件便于维护。
-
-### 4.3 构建系统接入原理
-
-新增一个板卡 ID 需要在四处"注册"：① Kconfig 增加板卡选择项（用户以 `MUSE_BOARD=` 选择）；② CMake 把板级源文件编入组件；③ 组件管理文件声明依赖（电量计、IO 扩展等）；④ 提供 72 行的板级配置叠加层（16 MB Flash、八线 PSRAM、双 LVGL 绘制单元等）。工具链侧，`board.sh` 注册 185b 构建档位，`ports.py` 与 `avatar.py` 注册串口探测规则与设备识别图案。全部改动不触碰上游任何应用代码，**保证了未来同步上游更新时的低冲突概率**。
-
-## 5 执行过程与问题管理
-
-### 5.1 总体流程
-
-项目按"调研 → 基线 → 实现 → 验证 → 交付"五个阶段推进，关键路径为板级实现与编译验证：
-
-```mermaid
-flowchart TD
-  S1["调研上游 SDK 与 9 步移植配方"] --> S2["硬件规格调研：185B 对照 185C"]
-  S2 --> S3["确定 185C 为参考基线"]
-  S3 --> S4["实现板级文件与面板初始化头文件"]
-  S4 --> S5["构建系统接入：Kconfig / CMake / overlay"]
-  S5 --> S6["工具链接入：board.sh / ports / avatar"]
-  S6 --> S7["搭建 ESP-IDF v6.0.1 环境并全量编译"]
-  S7 --> S8["文档：设备清单与中文刷机指南"]
-  S8 --> S9["实机刷机与运行验证"]
-  S9 --> S10["提交 f1f8883 并推送开源"]
+```powershell
+D:\esp\esp-idf-v6.0.1\export.bat
 ```
 
-流程与上游 AGENTS.md 移植配方对齐；S7 为唯一反复的阶段（环境问题），见 5.2。
+> `export.bat` 是批处理，在 PowerShell 里直接调用不会保留环境变量。
+> 请在 **cmd** 里运行它，或用 PowerShell 的 `& D:\esp\esp-idf-v6.0.1\export.ps1`（如带），
+> 或者像第 5 节那样把激活和编译放进同一条 cmd 命令。
 
-### 5.2 问题日志：从产品复盘看执行风险
+### macOS / Linux
 
-执行过程中记录了 6 个有代表性的问题。值得注意的是，**全部问题集中在"工程环境"而非"移植方案"**——板级方案一次通过，风险全部来自网络与 Windows 工具链，这对同类项目的资源评估有直接参考价值。
+```sh
+git clone --depth 1 --recursive -b v6.0.1 https://github.com/espressif/esp-idf.git ~/esp/esp-idf-v6.0.1
+cd ~/esp/esp-idf-v6.0.1 && ./install.sh esp32s3
+. ~/esp/esp-idf-v6.0.1/export.sh
+```
 
-| # | 问题 | 影响 | 解决方式 |
-|:---:|---|:---:|---|
-| 1 | GitHub 直连大量连接重置，ESP-IDF 仓库与子模块克隆反复中断 | 阻塞 | 探测到本机 7890 代理端口，全部 git 操作改单命令级代理（不污染全局配置）；大子模块改 `blob:none` 部分克隆一次成功 |
-| 2 | 中断的克隆留下损坏的子模块目录（esp_wifi/lib 只剩 .git） | 阻塞 | 删除残留目录与 .git/modules 对应项后重克隆 |
-| 3 | 空远端 + 本地浅克隆导致首次 push 报对象缺失 | 阻塞 | `fetch --unshallow` 补全上游全量历史后推送成功 |
-| 4 | 工具环境封禁 `cmd /c`，install.bat 常规方式不可用；PowerShell 下环境变量不跨命令持久 | 绕行 | 改用 PowerShell 直接调用 install.bat；构建时解析 `idf_tools.py export` 输出注入会话（正则需兼容行尾引号差异） |
-| 5 | 刷机前重新编译时发现 riscv gdb 工具未安装成功，环境导出整体报错 | 绕行 | gdb 仅调试用、编译不需要；改为手动构造工具链 PATH 直接 ninja 增量构建通过（顺带修正 ccache 实际路径在二级子目录的问题） |
-| 6 | 构建配置要求 SDK token，缺失时仅警告 | 预期 | 按设计处理：首次构建放行，用户提供 token 后写入构建目录 sdkconfig 重新编译（token 所在目录被 gitignore，已验证不入库） |
+## 4. 获取源码并配置 SDK Token
 
-## 6 验证结果
+```powershell
+git clone https://github.com/timemeetme/muse-gadgets-waveshare-ESP32-S3-Touch-LCD-1.85B.git
+cd muse-gadgets-waveshare-ESP32-S3-Touch-LCD-1.85B\esp32
+```
 
-### 6.1 编译验证
+每个应用构建都需要你自己的 SDK token（`mgst_...`）。token 写在**构建目录的
+sdkconfig** 里（该文件被 Git 忽略，不会被提交；也**不要**把它写进任何 overlay）。
 
-ESP-IDF v6.0.1 下 2196 个构建目标全部通过。关键配置项均按板级叠加层生效：`CONFIG_MUSE_BOARD_WAVESHARE_S3_185B`、16 MB Flash、八线 PSRAM、双 LVGL 绘制单元。固件体积 2.02 MiB，落在 4 MiB 的 ota_0 分区内，余量约 48%——**为后续功能迭代保留了整整一倍的余量**。分区采用双 OTA 槽（ota_0 / ota_1 各 4 MiB）加回滚机制，支持空中升级。
+流程：先编译一次生成 `build-muse-waveshare-s3-185b/sdkconfig`，再填 token，重新编译：
 
-| 存储域 | 已用 / 已规划 | 空闲 / 未分配 | 合计 |
-|---|:---:|:---:|:---:|
-| OTA app 分区（单槽） | 2.02 MiB | 1.98 MiB | 4 MiB |
-| 16 MB Flash 整机 | 8.13 MiB | 7.87 MiB | 16 MiB |
+```powershell
+# （先完成第 5 节的第一次编译，然后回到这里）
+notepad build-muse-waveshare-s3-185b\sdkconfig
+```
 
-数据来源：`esp32/partitions_muse.csv` 分区表与构建输出。已规划分区含双 OTA 槽、NVS（Muse 设置与 BLE 绑定）、产测数据区。
+找到（或追加）这一行并填入你的 token：
 
-### 6.2 实机刷机与运行验证
+```ini
+CONFIG_GADGET_SDK_TOKEN="mgst_你的token"
+```
 
-通过 Type-C 口（COM5，USB-Serial/JTAG）以 460800 波特率刷入四个分区（bootloader、分区表、OTA 数据、主程序），全部写入并哈希校验通过，复位后串口日志确认：
+保存后重新执行第 5 节的编译命令。没有 token 也能编译（会有警告），但设备在
+Muse 强制校验 token 后将无法配对。
 
-- **芯片识别**：ESP32-S3（QFN56）rev v0.2，双核 240 MHz，片上 PSRAM 8 MB 与配置一致；
-- **系统运行**：心跳日志每 5 秒输出，PSRAM 占用约 4.8 MB，运行稳定；
-- **业务状态**：设备进入 `ble=advertising` 配对广播态，符合预期（等待用户在 gadgets.muse.ai 输入屏幕配对码完成配对）；
-- **凭据注入**：用户 SDK token 编译进固件后重新刷机，构建日志确认 token 生效、无缺失警告。
+## 5. 编译固件
 
-## 7 风险与局限
+在仓库的 `esp32` 目录下。
 
-| 风险项 | 等级 | 类别 | 说明与应对 |
-|---|:---:|:---:|---|
-| Muse 服务区域限制 | 高 | 市场 | 仅美加开放，国内注册与配对需美国出口 IP；绕行使用违反服务条款，存在账号回收风险。SDK token 与账号绑定，账号失效即 token 失效。应对：面向国内用户的产品应评估小智等本土方案；Muse 适配定位为海外市场与技术研究 |
-| 上游演进与版本锁定 | 中 | 技术 | SDK 锁定 ESP-IDF v6.0.1 单一版本，上游更新节奏快；需定期 rebase 并回归测试。本次改动全部隔离在板级层，冲突面已最小化 |
-| 社区维护投入 | 中 | 运营 | 板卡支持需要持续响应 issue、适配上游变更；建议建立最小 CI（编译验证）降低维护成本 |
-| 音频与功耗未深度调优 | 低 | 技术 | ES8311/ES7210 驱动复用基线参数，BQ27220 已接入但功耗策略未针对电池场景优化，属后续迭代项 |
+### 方式一：board.sh 一条龙（需要 bash；macOS / Linux / Git Bash）
 
-## 8 建议与路线图
+```sh
+tools/muse/board.sh build 185b
+```
 
-- **短期（1–2 周）：把"能用"变成"好用"** — 补充分辨率/触摸的实机体验校准；录制端到端配对演示视频；在 README 增加常见问题（区域限制、token 管理、驱动安装）。
-- **中期（1–2 月）：融入上游生态** — 向上游提交 185B 支持的 PR，争取进入官方板卡清单；建立 GitHub Actions 编译验证；补充 BQ27220 电量显示与低电策略的产品化打磨。
-- **长期（季度级）：横向扩展与差异化** — 以同一板级契约模式扩展更多国产圆形屏板卡形成"板卡矩阵"；评估基于 Muse VM 的自定义表盘/技能；同时保持对小智生态的对标观察，双平台能力可复用同一硬件抽象经验。
+`board.sh` 会自动设置目标芯片与三层配置
+（`sdkconfig.defaults` → `devices/sdkconfig.muse` → `devices/sdkconfig.muse-waveshare-s3-185b`），
+在独立的 `build-muse-waveshare-s3-185b/` 目录里构建。
+它按 `~/.espressif/esp-idf-v6.0.1` → `IDF_PATH` → `IDF_EXPORT` 的顺序寻找 ESP-IDF。
 
-## 9 结论
+### 方式二：idf.py 直接构建（Windows 无 bash 时推荐）
 
-本次移植以 **16 个改动点、约 470 行板级代码**的边际成本，让一款国产圆形触屏开发板接入 Meta 的 AI 智能体生态，编译、刷机、运行三级验证全部通过并开源交付。它验证了上游 SDK 板级抽象的设计价值：**好的架构能把"适配一块新硬件"收敛成一次低风险的局部手术**。
+把 IDF 激活和构建放进同一条 cmd 命令（PowerShell 中执行）：
 
-从竞争格局看，Muse Gadgets 的智能体能力与工程规范性是显著优势，但区域可用性与账号绑定构成国内市场的硬约束；小智 AI 以开放生态与规模占据本土场景。对产品团队而言，**两条路线的板级适配经验高度可迁移**——本项目沉淀的硬件抽象方法论与踩坑记录，同样适用于任何"云端智能体 + 廉价终端"形态的产品孵化。
+```powershell
+cmd /c "call D:\esp\esp-idf-v6.0.1\export.bat && idf.py -B build-muse-waveshare-s3-185b -DIDF_TARGET=esp32s3 -DSDKCONFIG=build-muse-waveshare-s3-185b/sdkconfig -DSDKCONFIG_DEFAULTS=""sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-waveshare-s3-185b"" build"
+```
+
+（macOS / Linux 上等价于：
+
+```sh
+idf.py -B build-muse-waveshare-s3-185b -DIDF_TARGET=esp32s3 \
+  -DSDKCONFIG=build-muse-waveshare-s3-185b/sdkconfig \
+  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-waveshare-s3-185b" build
+```
+
+）
+
+第一次构建会由组件管理器自动下载依赖到 `managed_components/`，需要联网，耗时较长。
+构建成功后产物在 `build-muse-waveshare-s3-185b/muse-gadget.bin`。
+
+**验证**：构建日志里的 `check_sizes` 行显示各分区未超限即为通过；
+另外可以确认生成的 `build-muse-waveshare-s3-185b/sdkconfig` 里
+`CONFIG_MUSE_BOARD_WAVESHARE_S3_185B=y`、`CONFIG_IDF_TARGET="esp32s3"`、
+Flash 为 16MB。
+
+> 注意：`sdkconfig` 一旦生成，之后再改 overlay 不会自动生效。改了 overlay 或
+> `sdkconfig.defaults` 后，删除 `build-muse-waveshare-s3-185b/sdkconfig`
+> （或整个构建目录）再重新编译。
+
+## 6. 备份原厂固件（强烈建议）
+
+刷机会覆盖原厂出厂固件。第一次刷之前先把整颗 16 MB flash 备份下来，
+并**保存在 Git 仓库之外**：
+
+USB 连接开发板，在设备管理器中确认端口号（本板是芯片原生 USB，
+显示为「USB 串行设备(COM x)」；下文以 `COM7` 为例，请换成你的端口）：
+
+```powershell
+python -m esptool --chip esp32s3 -p COM7 -b 460800 read-flash 0 0x1000000 waveshare-s3-185b-backup.bin
+```
+
+备份文件约 16 MB，妥善保存。
+
+## 7. 刷机
+
+### 方式一：idf.py（最简单）
+
+```powershell
+cmd /c "call D:\esp\esp-idf-v6.0.1\export.bat && idf.py -B build-muse-waveshare-s3-185b -DIDF_TARGET=esp32s3 -DSDKCONFIG=build-muse-waveshare-s3-185b/sdkconfig -DSDKCONFIG_DEFAULTS=""sdkconfig.defaults;devices/sdkconfig.muse;devices/sdkconfig.muse-waveshare-s3-185b"" -p COM7 flash"
+```
+
+### 方式二：esptool + flash_args（等价）
+
+```powershell
+cd build-muse-waveshare-s3-185b
+python -m esptool --chip esp32s3 -p COM7 -b 460800 --before default-reset --after hard-reset write-flash "@flash_args"
+cd ..
+```
+
+### 方式三：board.sh（bash）
+
+```sh
+tools/muse/board.sh flash 185b        # 不带端口时自动按 USB 设备识别串口
+tools/muse/board.sh flash 185b COM7   # 或显式指定
+```
+
+**说明**
+
+- 刷机写入 bootloader、分区表、otadata、phy_init 和应用程序，**不动 NVS**——
+  重刷升级不会丢配对信息和 Wi-Fi 凭据。
+- `idf.py -p COM7 erase-flash` 会清空全部闪存（包括配对），只在想彻底重来时使用。
+- 进不了 bootloader（一直 `Connecting...`）：**按住 BOOT 键，点按一下 RESET，松开 BOOT**，
+  再刷。刷完按一次 RESET 或重新上电运行固件。
+- 固件使用仓库自带的开发签名密钥，未启用 Secure Boot，不会烧 eFuse；
+  请勿在还想反复刷机的板子上开启 Secure Boot / flash 加密。
+
+## 8. 查看运行日志（串口监视）
+
+```powershell
+cmd /c "call D:\esp\esp-idf-v6.0.1\export.bat && idf.py -B build-muse-waveshare-s3-185b -p COM7 monitor"
+```
+
+`Ctrl-]` 退出。健康启动的标志是日志里出现：
+
+```
+link.main: Muse Gadget starting
+```
+
+随后还有一行 `muse: board: Waveshare ESP32-S3-Touch-LCD-1.85B`。
+如需非交互抓取（自动复位后采集若干秒）：
+
+```sh
+python tools/muse/monitor.py COM7 10
+```
+
+## 9. 首次开机与配对
+
+1. 刷机完成后固件自动运行，屏幕点亮并显示头像 UI。未配对时屏幕上会显示
+   设备名 **`MuseGadget-XXXXXX`**（XXXXXX 为设备 MAC 尾号），方便你在 App 里辨认。
+2. 打开手机 **Muse App → Settings → Devices**（确认 Developer mode 已开），
+   扫描并选择该 `MuseGadget-XXXXXX` 设备。
+3. App 通过 BLE 给设备配网（选你的 Wi-Fi、输入密码）并完成配对。
+   当 App 要求**在设备上确认**时，**短按一下 BOOT 键**确认配对。
+4. 配对成功后设备加入 Wi-Fi，与 Muse 建立加密会话，屏幕显示绿色/已连接状态，
+   设备名消失，麦克风图标出现。
+
+**BOOT 键的两个功能**：
+
+- **短按**：确认待处理的配对；若配置未完成，重新打开设置窗口
+- **长按 5 秒**：重置设置（解除配对并忘记 Wi-Fi）
+
+**状态颜色**（本板显示在屏幕状态区/边缘）：
+
+| 颜色 | 含义 |
+|---|---|
+| 橙色，呼吸 | BLE 广播中，等待配网 |
+| 蓝色，呼吸 | 配对需要设备按键确认 |
+| 蓝色 | Wi-Fi / 会话建立中 |
+| 绿色 | 已连接 |
+| 黄色，闪烁 | 会话切换或连接断开 |
+| 紫色 | 未配对 |
+| 红色，闪烁 | 出错 |
+
+本设备使用 community pairing v5，手机 App 需支持 v5 并显示社区设备。
+
+## 10. 日常使用
+
+- **语音对话（按住说话）**：手指**按住屏幕上的头像**约半秒即开始录音，
+  松开发送；或按住 **BOOT** 键作为 push-to-talk。Muse 转文字作答，回复可从
+  扬声器播放（TTS）并在屏幕显示。
+- **触屏设置**：屏幕上点开设置界面，可调亮度等（设置项随固件版本演进，
+  以屏幕实际显示为准）。
+- **图片显示**：Muse 可以向设备发送图片，直接显示在圆屏上。
+- **电池电量**：Muse 会读取 BQ27220 电量计的电压/百分比/充电状态
+  （`device.health`）。插 USB 充电时状态为「充电中」。
+- **OTA 升级**：本板默认开启 OTA（Muse 可远程推送固件更新）。
+  本地重新刷机（第 7 节）随时可用，且不影响配对。
+- **待机**：电池供电、息屏且无语音活动时设备进入低功耗休眠，
+  按 BOOT 或触摸唤醒；USB 供电时全速运行。
+- **更换头像**：接好串口、设备已联网配对后，在 `esp32` 目录运行
+  `python tools/muse/avatar.py`，按提示让 Muse 为你绘制专属头像并自动刷入。
+
+## 11. 恢复原厂固件 / 恢复出厂设置
+
+- **恢复原厂固件**：用第 6 节的备份原样写回：
+
+  ```powershell
+  python -m esptool --chip esp32s3 -p COM7 -b 460800 write-flash 0 waveshare-s3-185b-backup.bin
+  ```
+
+- **只解除配对/清除 Wi-Fi**：BOOT 长按 5 秒，或 `idf.py -p COM7 erase-flash`
+  （后者全清，包括配对、Wi-Fi 与 NVS 数据，之后需重新走配对流程）。
+
+## 12. 常见问题
+
+**Q：`python -m esptool` 连不上板子？**
+用 USB 数据线（不是充电线）；设备管理器里确认端口；必要时按住 BOOT 再点 RESET
+进入下载模式。本板是原生 USB Serial/JTAG（USB ID `303a:1001`），
+无需安装驱动；若被识别成其他设备，换一条线/一个 USB 口。
+
+**Q：编译报找不到 `gcm.h` / `gpio_ll.h`？**
+ESP-IDF 版本不是 v6.0.1。按第 3 节安装正确版本。
+
+**Q：改了 overlay 但配置没变？**
+生成的 `build-muse-waveshare-s3-185b/sdkconfig` 优先生效。删除它或整个构建目录
+再编译。
+
+**Q：设备一直显示紫色/未配对？**
+检查 SDK token 是否已写入 `build-muse-waveshare-s3-185b/sdkconfig` 并重新编译刷机；
+确认 App 已开 Developer mode 且支持 community pairing v5。
+
+**Q：电池显示 `-1` 或没有读数？**
+本板电池读数来自 BQ27220 电量计，电量计仅由电池供电。未装电池（仅 USB 供电）
+时属正常现象。装电池后仍无读数，请检查电池排线。
+
+**Q：屏幕显示异常/花屏？**
+确认刷的是 185B 固件而不是 185C（两者复位脚不同，刷错会导致屏幕异常）。
+在监视日志中核对 `muse: board: Waveshare ESP32-S3-Touch-LCD-1.85B`。
+
+**Q：想同时编译其他板子？**
+各板共用 `esp32/managed_components/` 与 `dependencies.lock`，
+在带屏板与不带屏板之间切换构建若报组件管理错误，删除这两个文件/目录再构建。
 
 ---
 
-## 参考来源
+## 致谢与许可
 
-1. [facebookincubator/muse-gadget-sdk — 上游 SDK 仓库，含 AGENTS.md 移植配方与板级契约定义](https://github.com/facebookincubator/muse-gadget-sdk)
-2. [timemeetme/muse-gadgets-waveshare-ESP32-S3-Touch-LCD-1.85B — 本项目交付仓库（commit f1f8883）](https://github.com/timemeetme/muse-gadgets-waveshare-ESP32-S3-Touch-LCD-1.85B)
-3. [Zentor Blog, Meta Muse Availability: US Only, For Now — Muse 2026-09-08 美国首发信息](https://zentor.ai/blog/meta-muse-availability)
-4. [UseCarly, Where Is Meta Muse Available? — 美加两国开放、其余地区不可用的提示原文](https://www.usecarly.com/blog/meta-muse-availability/)
-5. [51CTO，Meta Muse 上手教程 — 国内直连注册不通过的现象与绕行方式](https://www.51cto.com/article/857341.html)
-6. [搜狐科技，Muse 大更新：Muse Gadgets — 开源发布与官方账号 8.2 万关注者](https://news.sohu.com/a/1083755683_122105141)
-7. [羊城晚报，十方融海"小智 AI"开源框架 — 26000+ 星、接入设备超 130 万台、开发者超 10 万](http://news.ycwb.com/ikimvkotil/content_54087899.htm)
-8. [XiaoZhi AI 官网 — MIT 协议、MCP 协议、Qwen/DeepSeek 模型、多芯片平台支持](https://xiaozhi.me/home/en/)
-9. [VibeCrowd, 78/xiaozhi-esp32 — 30,332 stars / 7.1k forks 实时数据（2026-10）](https://vibecrowd.ai/repos/78--xiaozhi-esp32)
-10. [腾讯新闻，Meta 开源 Muse Gadgets — ESP32 固件与 Linux SDK 双路径、token 获取流程](http://news.qq.com/rain/a/20261003A09SDK00)
-
-## Community
-
-Meet other hackers who are building and customizing Muse gadgets in our
-community [Discord](https://discord.gg/3bhjCkZdd6). Get inspired, support each
-other, and share what you make.
-
-## License
-
-Muse Gadgets is licensed under the Apache License, Version 2.0, found in
-[`LICENSE`](LICENSE), except for these third-party files, which keep their
-upstream licenses:
-
-| Path | Upstream | License |
-|---|---|---|
-| [`esp32/components/minimp3/include/minimp3.h`](esp32/components/minimp3) | [lieff/minimp3](https://github.com/lieff/minimp3) | CC0-1.0, see [`LICENSE`](esp32/components/minimp3/LICENSE) |
-| [`esp32/components/muse/boards/ostb_echoear_display_init.h`](esp32/components/muse/boards/ostb_echoear_display_init.h) | [78/xiaozhi-esp32 ESP-VoCat panel sequence](https://github.com/78/xiaozhi-esp32/blob/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/espressif/esp-vocat/esp_vocat.cc) | MIT, retained in the file header |
-| [`esp32/main/pixel_font.c`](esp32/main/pixel_font.c) | Adafruit GFX `glcdfont.c` | BSD-2-Clause, in the file header |
-
-Dependencies fetched at build time are under their own licenses: ESP-IDF
-components (into `esp32/managed_components/`), and the simulator's LVGL and
-SDL (listed in [`esp32/simulator/THIRD_PARTY.md`](esp32/simulator/THIRD_PARTY.md)).
-
-The Apache License does not cover the [Jollybot avatar](esp32/avatar).
+- 上游 SDK：Meta Platforms, Inc. 及贡献者，Apache License 2.0（见 [LICENSE](LICENSE)）。
+- 本移植基于上游对 1.85C 的板级实现与
+  [78/xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) 公开的 ST77916 面板初始化序列。
+- 刷机有风险：可能失去保修、变砖等，请自担风险（上游原话：proceed at your own risk）。
